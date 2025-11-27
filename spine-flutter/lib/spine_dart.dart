@@ -52,14 +52,15 @@ import 'generated/skin.dart';
 import 'generated/spine_dart_bindings_generated.dart';
 import 'generated/track_entry.dart';
 import 'spine_bindings.dart';
-import 'spine_dart_init.dart' if (dart.library.html) 'spine_dart_init_web.dart';
+import 'spine_dart_init_web.dart' if (dart.library.io) 'spine_dart_init.dart';
 
 // Export generated classes
 export 'generated/api.dart';
 export 'generated/spine_dart_bindings_generated.dart';
 export 'spine_bindings.dart';
 
-Future<void> initSpineDart({bool useStaticLinkage = false, bool enableMemoryDebugging = false}) async {
+Future<void> initSpineDart(
+    {bool useStaticLinkage = false, bool enableMemoryDebugging = false}) async {
   final ffi = await initSpineDartFFI(useStaticLinkage);
   final bindings = SpineDartBindings(ffi.dylib);
   if (enableMemoryDebugging) bindings.spine_enable_debug_extension(true);
@@ -79,11 +80,13 @@ void reportLeaks() => SpineBindings.bindings.spine_report_leaks();
 /// Load an Atlas from atlas data string
 Atlas loadAtlas(String atlasData) {
   final atlasDataNative = atlasData.toNativeUtf8();
-  final resultPtr = SpineBindings.bindings.spine_atlas_load(atlasDataNative.cast<Char>());
+  final resultPtr =
+      SpineBindings.bindings.spine_atlas_load(atlasDataNative.cast<Char>());
   malloc.free(atlasDataNative);
 
   // Check for error
-  final errorPtr = SpineBindings.bindings.spine_atlas_result_get_error(resultPtr.cast());
+  final errorPtr =
+      SpineBindings.bindings.spine_atlas_result_get_error(resultPtr.cast());
   if (errorPtr != nullptr) {
     final error = errorPtr.cast<Utf8>().toDartString();
     SpineBindings.bindings.spine_atlas_result_dispose(resultPtr.cast());
@@ -91,25 +94,30 @@ Atlas loadAtlas(String atlasData) {
   }
 
   // Get atlas
-  final atlasPtr = SpineBindings.bindings.spine_atlas_result_get_atlas(resultPtr.cast());
+  final atlasPtr =
+      SpineBindings.bindings.spine_atlas_result_get_atlas(resultPtr.cast());
   final atlas = Atlas.fromPointer(atlasPtr);
   SpineBindings.bindings.spine_atlas_result_dispose(resultPtr.cast());
   return atlas;
 }
 
 /// Load skeleton data from JSON string
-SkeletonData loadSkeletonDataJson(Atlas atlas, String jsonData, {String? path}) {
+SkeletonData loadSkeletonDataJson(Atlas atlas, String jsonData,
+    {String? path}) {
   final jsonDataNative = jsonData.toNativeUtf8();
   final pathNative = (path ?? '').toNativeUtf8();
 
-  final resultPtr = SpineBindings.bindings
-      .spine_skeleton_data_load_json(atlas.nativePtr.cast(), jsonDataNative.cast<Char>(), pathNative.cast<Char>());
+  final resultPtr = SpineBindings.bindings.spine_skeleton_data_load_json(
+      atlas.nativePtr.cast(),
+      jsonDataNative.cast<Char>(),
+      pathNative.cast<Char>());
 
   malloc.free(jsonDataNative);
   malloc.free(pathNative);
 
   // Check for error
-  final errorPtr = SpineBindings.bindings.spine_skeleton_data_result_get_error(resultPtr.cast());
+  final errorPtr = SpineBindings.bindings
+      .spine_skeleton_data_result_get_error(resultPtr.cast());
   if (errorPtr != nullptr) {
     final error = errorPtr.cast<Utf8>().toDartString();
     SpineBindings.bindings.spine_skeleton_data_result_dispose(resultPtr.cast());
@@ -117,26 +125,32 @@ SkeletonData loadSkeletonDataJson(Atlas atlas, String jsonData, {String? path}) 
   }
 
   // Get skeleton data
-  final skeletonDataPtr = SpineBindings.bindings.spine_skeleton_data_result_get_data(resultPtr.cast());
+  final skeletonDataPtr = SpineBindings.bindings
+      .spine_skeleton_data_result_get_data(resultPtr.cast());
   final skeletonData = SkeletonData.fromPointer(skeletonDataPtr);
   SpineBindings.bindings.spine_skeleton_data_result_dispose(resultPtr.cast());
   return skeletonData;
 }
 
 /// Load skeleton data from binary data
-SkeletonData loadSkeletonDataBinary(Atlas atlas, Uint8List binaryData, {String? path}) {
+SkeletonData loadSkeletonDataBinary(Atlas atlas, Uint8List binaryData,
+    {String? path}) {
   final Pointer<Uint8> binaryNative = malloc.allocate(binaryData.lengthInBytes);
   binaryNative.asTypedList(binaryData.lengthInBytes).setAll(0, binaryData);
   final pathNative = (path ?? '').toNativeUtf8();
 
   final resultPtr = SpineBindings.bindings.spine_skeleton_data_load_binary(
-      atlas.nativePtr.cast(), binaryNative.cast(), binaryData.lengthInBytes, pathNative.cast<Char>());
+      atlas.nativePtr.cast(),
+      binaryNative.cast(),
+      binaryData.lengthInBytes,
+      pathNative.cast<Char>());
 
   malloc.free(binaryNative);
   malloc.free(pathNative);
 
   // Check for error
-  final errorPtr = SpineBindings.bindings.spine_skeleton_data_result_get_error(resultPtr.cast());
+  final errorPtr = SpineBindings.bindings
+      .spine_skeleton_data_result_get_error(resultPtr.cast());
   if (errorPtr != nullptr) {
     final error = errorPtr.cast<Utf8>().toDartString();
     SpineBindings.bindings.spine_skeleton_data_result_dispose(resultPtr.cast());
@@ -144,7 +158,8 @@ SkeletonData loadSkeletonDataBinary(Atlas atlas, Uint8List binaryData, {String? 
   }
 
   // Get skeleton data
-  final skeletonDataPtr = SpineBindings.bindings.spine_skeleton_data_result_get_data(resultPtr.cast());
+  final skeletonDataPtr = SpineBindings.bindings
+      .spine_skeleton_data_result_get_data(resultPtr.cast());
   final skeletonData = SkeletonData.fromPointer(skeletonDataPtr);
   SpineBindings.bindings.spine_skeleton_data_result_dispose(resultPtr.cast());
   return skeletonData;
@@ -156,33 +171,44 @@ class SkinEntry {
   final String name;
   final Attachment? attachment;
 
-  SkinEntry._({required this.slotIndex, required this.name, required this.attachment});
+  SkinEntry._(
+      {required this.slotIndex, required this.name, required this.attachment});
 }
 
 /// Extension method for Skin to get all entries
 extension SkinExtensions on Skin {
   /// Get all entries (slot/attachment pairs) in this skin
   List<SkinEntry> getEntries() {
-    final entriesPtr = SpineBindings.bindings.spine_skin_get_entries(nativePtr.cast());
+    final entriesPtr =
+        SpineBindings.bindings.spine_skin_get_entries(nativePtr.cast());
     if (entriesPtr == nullptr) return [];
 
     try {
-      final numEntries = SpineBindings.bindings.spine_skin_entries_get_num_entries(entriesPtr.cast());
+      final numEntries = SpineBindings.bindings
+          .spine_skin_entries_get_num_entries(entriesPtr.cast());
       final entries = <SkinEntry>[];
 
       for (int i = 0; i < numEntries; i++) {
-        final entryPtr = SpineBindings.bindings.spine_skin_entries_get_entry(entriesPtr.cast(), i);
+        final entryPtr = SpineBindings.bindings
+            .spine_skin_entries_get_entry(entriesPtr.cast(), i);
         if (entryPtr != nullptr) {
-          final slotIndex = SpineBindings.bindings.spine_skin_entry_get_slot_index(entryPtr.cast());
-          final namePtr = SpineBindings.bindings.spine_skin_entry_get_name(entryPtr.cast());
+          final slotIndex = SpineBindings.bindings
+              .spine_skin_entry_get_slot_index(entryPtr.cast());
+          final namePtr =
+              SpineBindings.bindings.spine_skin_entry_get_name(entryPtr.cast());
           final name = namePtr.cast<Utf8>().toDartString();
 
-          final attachmentPtr = SpineBindings.bindings.spine_skin_entry_get_attachment(entryPtr.cast());
+          final attachmentPtr = SpineBindings.bindings
+              .spine_skin_entry_get_attachment(entryPtr.cast());
           Attachment? attachment;
           if (attachmentPtr.address != 0) {
             // Use RTTI to determine the concrete attachment type
-            final rtti = SpineBindings.bindings.spine_attachment_get_rtti(attachmentPtr);
-            final className = SpineBindings.bindings.spine_rtti_get_class_name(rtti).cast<Utf8>().toDartString();
+            final rtti =
+                SpineBindings.bindings.spine_attachment_get_rtti(attachmentPtr);
+            final className = SpineBindings.bindings
+                .spine_rtti_get_class_name(rtti)
+                .cast<Utf8>()
+                .toDartString();
 
             switch (className) {
               case 'spine_region_attachment':
@@ -192,10 +218,12 @@ extension SkinExtensions on Skin {
                 attachment = MeshAttachment.fromPointer(attachmentPtr.cast());
                 break;
               case 'spine_bounding_box_attachment':
-                attachment = BoundingBoxAttachment.fromPointer(attachmentPtr.cast());
+                attachment =
+                    BoundingBoxAttachment.fromPointer(attachmentPtr.cast());
                 break;
               case 'spine_clipping_attachment':
-                attachment = ClippingAttachment.fromPointer(attachmentPtr.cast());
+                attachment =
+                    ClippingAttachment.fromPointer(attachmentPtr.cast());
                 break;
               case 'spine_path_attachment':
                 attachment = PathAttachment.fromPointer(attachmentPtr.cast());
@@ -225,7 +253,8 @@ extension SkinExtensions on Skin {
 }
 
 /// Event listener callback for animation state events
-typedef AnimationStateListener = void Function(EventType type, TrackEntry entry, Event? event);
+typedef AnimationStateListener = void Function(
+    EventType type, TrackEntry entry, Event? event);
 
 /// Manager for animation state event listeners
 class AnimationStateEventManager {
@@ -236,7 +265,8 @@ class AnimationStateEventManager {
   static final instance = AnimationStateEventManager._();
   AnimationStateEventManager._();
 
-  void setStateListener(AnimationState state, AnimationStateListener? listener) {
+  void setStateListener(
+      AnimationState state, AnimationStateListener? listener) {
     final key = state.nativePtr.address;
     if (listener == null) {
       _stateListeners.remove(key);
@@ -250,7 +280,8 @@ class AnimationStateEventManager {
     return _stateListeners[key];
   }
 
-  void setTrackEntryListener(TrackEntry entry, AnimationStateListener? listener) {
+  void setTrackEntryListener(
+      TrackEntry entry, AnimationStateListener? listener) {
     // Get the animation state from the track entry itself!
     final state = entry.animationState;
     if (state == null) {
@@ -268,7 +299,8 @@ class AnimationStateEventManager {
     }
   }
 
-  AnimationStateListener? getTrackEntryListener(AnimationState state, TrackEntry entry) {
+  AnimationStateListener? getTrackEntryListener(
+      AnimationState state, TrackEntry entry) {
     final stateKey = state.nativePtr.address;
     final entryKey = entry.nativePtr.address;
     final listener = _trackEntryListeners[stateKey]?[entryKey];
@@ -295,10 +327,12 @@ class AnimationStateEventManager {
   /// Debug method to inspect current state of the manager
   void debugPrint() {
     print('\nAnimationStateEventManager contents:');
-    print('  State listeners: ${_stateListeners.keys.toList()} (${_stateListeners.length} total)');
+    print(
+        '  State listeners: ${_stateListeners.keys.toList()} (${_stateListeners.length} total)');
     print('  Track entry listeners by state:');
     for (final entry in _trackEntryListeners.entries) {
-      print('    State ${entry.key}: ${entry.value.keys.toList()} (${entry.value.length} entries)');
+      print(
+          '    State ${entry.key}: ${entry.value.keys.toList()} (${entry.value.length} entries)');
     }
   }
 }
@@ -311,7 +345,8 @@ extension AnimationStateListeners on AnimationState {
   }
 
   /// Get the current state listener
-  AnimationStateListener? get listener => AnimationStateEventManager.instance.getStateListener(this);
+  AnimationStateListener? get listener =>
+      AnimationStateEventManager.instance.getStateListener(this);
 }
 
 /// Extension to add setListener to TrackEntry
@@ -349,7 +384,8 @@ extension SkeletonExtensions on Skeleton {
   /// Get the axis-aligned bounding box (AABB) containing all world vertices of the skeleton
   Bounds get bounds {
     final output = ArrayFloat();
-    SpineBindings.bindings.spine_skeleton_get_bounds(nativePtr.cast(), output.nativePtr.cast());
+    SpineBindings.bindings
+        .spine_skeleton_get_bounds(nativePtr.cast(), output.nativePtr.cast());
     final bounds = Bounds(
       x: output[0],
       y: output[1],
@@ -362,7 +398,8 @@ extension SkeletonExtensions on Skeleton {
 
   Vector getPosition() {
     final output = ArrayFloat.withCapacity(2);
-    SpineBindings.bindings.spine_skeleton_get_position_v(nativePtr.cast(), output.nativePtr.cast());
+    SpineBindings.bindings.spine_skeleton_get_position_v(
+        nativePtr.cast(), output.nativePtr.cast());
     final position = Vector(x: output[0], y: output[1]);
     output.dispose();
     return position;
@@ -372,7 +409,8 @@ extension SkeletonExtensions on Skeleton {
 extension BonePoseExtensions on BonePose {
   Vector worldToLocal(double worldX, double worldY) {
     final output = ArrayFloat.withCapacity(2);
-    SpineBindings.bindings.spine_bone_pose_world_to_local_v(nativePtr.cast(), worldX, worldY, output.nativePtr.cast());
+    SpineBindings.bindings.spine_bone_pose_world_to_local_v(
+        nativePtr.cast(), worldX, worldY, output.nativePtr.cast());
     final vector = Vector(x: output[0], y: output[1]);
     output.dispose();
     return vector;
@@ -380,7 +418,8 @@ extension BonePoseExtensions on BonePose {
 
   Vector localToWorld(double localX, double localY) {
     final output = ArrayFloat.withCapacity(2);
-    SpineBindings.bindings.spine_bone_pose_local_to_world_v(nativePtr.cast(), localX, localY, output.nativePtr.cast());
+    SpineBindings.bindings.spine_bone_pose_local_to_world_v(
+        nativePtr.cast(), localX, localY, output.nativePtr.cast());
     final vector = Vector(x: output[0], y: output[1]);
     output.dispose();
     return vector;
@@ -388,7 +427,8 @@ extension BonePoseExtensions on BonePose {
 
   Vector worldToParent(double worldX, double worldY) {
     final output = ArrayFloat.withCapacity(2);
-    SpineBindings.bindings.spine_bone_pose_world_to_parent_v(nativePtr.cast(), worldX, worldY, output.nativePtr.cast());
+    SpineBindings.bindings.spine_bone_pose_world_to_parent_v(
+        nativePtr.cast(), worldX, worldY, output.nativePtr.cast());
     final vector = Vector(x: output[0], y: output[1]);
     output.dispose();
     return vector;
@@ -396,8 +436,8 @@ extension BonePoseExtensions on BonePose {
 
   Vector parentToWorld(double parentX, double parentY) {
     final output = ArrayFloat.withCapacity(2);
-    SpineBindings.bindings
-        .spine_bone_pose_parent_to_world_v(nativePtr.cast(), parentX, parentY, output.nativePtr.cast());
+    SpineBindings.bindings.spine_bone_pose_parent_to_world_v(
+        nativePtr.cast(), parentX, parentY, output.nativePtr.cast());
     final vector = Vector(x: output[0], y: output[1]);
     output.dispose();
     return vector;
@@ -413,20 +453,28 @@ class SkeletonDrawable {
   late final AnimationStateData animationStateData;
 
   SkeletonDrawable(SkeletonData skeletonData)
-      : _drawable = SpineBindings.bindings.spine_skeleton_drawable_create(skeletonData.nativePtr.cast()) {
+      : _drawable = (() {
+          final inputPtr =
+              skeletonData.nativePtr.cast<spine_skeleton_data_wrapper>();
+          final result =
+              SpineBindings.bindings.spine_skeleton_drawable_create(inputPtr);
+          return result;
+        })() {
     if (_drawable == nullptr) {
       throw Exception("Failed to create skeleton drawable");
     }
 
     // Get references to the skeleton and animation state
-    final skeletonPtr = SpineBindings.bindings.spine_skeleton_drawable_get_skeleton(_drawable.cast());
+    final skeletonPtr = SpineBindings.bindings
+        .spine_skeleton_drawable_get_skeleton(_drawable.cast());
     skeleton = Skeleton.fromPointer(skeletonPtr);
 
-    final animationStatePtr = SpineBindings.bindings.spine_skeleton_drawable_get_animation_state(_drawable.cast());
+    final animationStatePtr = SpineBindings.bindings
+        .spine_skeleton_drawable_get_animation_state(_drawable.cast());
     animationState = AnimationState.fromPointer(animationStatePtr);
 
-    final animationStateDataPtr =
-        SpineBindings.bindings.spine_skeleton_drawable_get_animation_state_data(_drawable.cast());
+    final animationStateDataPtr = SpineBindings.bindings
+        .spine_skeleton_drawable_get_animation_state_data(_drawable.cast());
     animationStateData = AnimationStateData.fromPointer(animationStateDataPtr);
   }
 
@@ -436,25 +484,32 @@ class SkeletonDrawable {
     animationState.update(delta);
 
     // Process events
-    final eventsPtr = SpineBindings.bindings.spine_skeleton_drawable_get_animation_state_events(_drawable.cast());
+    final eventsPtr = SpineBindings.bindings
+        .spine_skeleton_drawable_get_animation_state_events(_drawable.cast());
     if (eventsPtr != nullptr) {
-      final numEvents = SpineBindings.bindings.spine_animation_state_events_get_num_events(eventsPtr.cast());
+      final numEvents = SpineBindings.bindings
+          .spine_animation_state_events_get_num_events(eventsPtr.cast());
 
       for (int i = 0; i < numEvents; i++) {
         // Get event type
-        final eventTypeValue = SpineBindings.bindings.spine_animation_state_events_get_event_type(eventsPtr.cast(), i);
+        final eventTypeValue = SpineBindings.bindings
+            .spine_animation_state_events_get_event_type(eventsPtr.cast(), i);
         final type = EventType.fromValue(eventTypeValue);
 
         // Get track entry
-        final trackEntryPtr = SpineBindings.bindings.spine_animation_state_events_get_track_entry(eventsPtr.cast(), i);
+        final trackEntryPtr = SpineBindings.bindings
+            .spine_animation_state_events_get_track_entry(eventsPtr.cast(), i);
         final trackEntry = TrackEntry.fromPointer(trackEntryPtr);
 
         // Get event (may be null)
-        final eventPtr = SpineBindings.bindings.spine_animation_state_events_get_event(eventsPtr.cast(), i);
-        final event = eventPtr.address == 0 ? null : Event.fromPointer(eventPtr);
+        final eventPtr = SpineBindings.bindings
+            .spine_animation_state_events_get_event(eventsPtr.cast(), i);
+        final event =
+            eventPtr.address == 0 ? null : Event.fromPointer(eventPtr);
 
         // Call track entry listener if registered
-        final trackListener = AnimationStateEventManager.instance.getTrackEntryListener(animationState, trackEntry);
+        final trackListener = AnimationStateEventManager.instance
+            .getTrackEntryListener(animationState, trackEntry);
         trackListener?.call(type, trackEntry, event);
 
         // Call global state listener
@@ -462,12 +517,14 @@ class SkeletonDrawable {
 
         // Remove listener if track entry is being disposed
         if (type == EventType.dispose) {
-          AnimationStateEventManager.instance.removeTrackEntry(animationState, trackEntry);
+          AnimationStateEventManager.instance
+              .removeTrackEntry(animationState, trackEntry);
         }
       }
 
       // Reset events for next frame
-      SpineBindings.bindings.spine_animation_state_events_reset(eventsPtr.cast());
+      SpineBindings.bindings
+          .spine_animation_state_events_reset(eventsPtr.cast());
     }
 
     // Apply animation state to skeleton
@@ -480,8 +537,11 @@ class SkeletonDrawable {
 
   /// Render the skeleton and get render commands
   RenderCommand? render() {
-    final renderCommand = SpineBindings.bindings.spine_skeleton_drawable_render(_drawable.cast());
-    return renderCommand.address == 0 ? null : RenderCommand.fromPointer(renderCommand);
+    final renderCommand =
+        SpineBindings.bindings.spine_skeleton_drawable_render(_drawable.cast());
+    return renderCommand.address == 0
+        ? null
+        : RenderCommand.fromPointer(renderCommand);
   }
 
   void dispose() {
