@@ -9,6 +9,8 @@ import 'dart:io' if (dart.library.html) 'io_stub.dart';
 import 'dart:typed_data';
 import 'dart:ui';
 
+import 'dart:async';
+
 import "package:universal_ffi/ffi.dart";
 
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -19,8 +21,11 @@ import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as path;
 
 // Backwards compatibility
-Future<void> initSpineFlutter({bool useStaticLinkage = false, bool enableMemoryDebugging = false}) async {
-  await initSpineDart(useStaticLinkage: useStaticLinkage, enableMemoryDebugging: enableMemoryDebugging);
+Future<void> initSpineFlutter(
+    {bool useStaticLinkage = false, bool enableMemoryDebugging = false}) async {
+  await initSpineDart(
+      useStaticLinkage: useStaticLinkage,
+      enableMemoryDebugging: enableMemoryDebugging);
   return;
 }
 
@@ -31,7 +36,61 @@ class AtlasFlutter extends Atlas {
   final List<Map<BlendMode, Paint>> atlasPagePaints;
   bool _disposed = false;
 
-  AtlasFlutter._(super.ptr, this.atlasPages, this.atlasPagePaints) : super.fromPointer();
+  AtlasFlutter._(super.ptr, this.atlasPages, this.atlasPagePaints)
+      : super.fromPointer();
+
+  static Future<Image> _unpremultiplyOnce(Image image) async {
+    final byteData = await image.toByteData(format: ImageByteFormat.rawRgba);
+    if (byteData == null) return image;
+
+    final width = image.width;
+    final height = image.height;
+
+    final src = byteData.buffer.asUint8List();
+    final dst = Uint8List(src.length);
+
+    for (var i = 0; i < src.length; i += 4) {
+      final r = src[i];
+      final g = src[i + 1];
+      final b = src[i + 2];
+      final a = src[i + 3];
+      if (a == 0) {
+        dst[i] = 0;
+        dst[i + 1] = 0;
+        dst[i + 2] = 0;
+        dst[i + 3] = 0;
+        continue;
+      }
+      if (a == 255) {
+        dst[i] = r;
+        dst[i + 1] = g;
+        dst[i + 2] = b;
+        dst[i + 3] = a;
+        continue;
+      }
+
+      int unpremul(int c) {
+        final v = (c * 255 + (a >> 1)) ~/ a;
+        return v < 0 ? 0 : (v > 255 ? 255 : v);
+      }
+
+      dst[i] = unpremul(r);
+      dst[i + 1] = unpremul(g);
+      dst[i + 2] = unpremul(b);
+      dst[i + 3] = a;
+    }
+
+    final completer = Completer<Image>();
+    decodeImageFromPixels(
+      dst,
+      width,
+      height,
+      PixelFormat.rgba8888,
+      (img) => completer.complete(img),
+      rowBytes: width * 4,
+    );
+    return completer.future;
+  }
 
   /// Loads an [AtlasFlutter] using a custom file loading function.
   ///
@@ -63,7 +122,8 @@ class AtlasFlutter extends Atlas {
   ///
   /// Note: The [loadFile] function receives the full relative path for images
   /// (e.g., "directory/page.png" if the atlas file specifies that path).
-  static Future<AtlasFlutter> fromMemory(String atlasFileName, Future<Uint8List> Function(String name) loadFile) async {
+  static Future<AtlasFlutter> fromMemory(String atlasFileName,
+      Future<Uint8List> Function(String name) loadFile) async {
     // Load atlas data
     final atlasBytes = await loadFile(atlasFileName);
     final atlasData = convert.utf8.decode(atlasBytes);
@@ -86,7 +146,14 @@ class AtlasFlutter extends Atlas {
       final imageData = await loadFile(imagePath);
       final codec = await instantiateImageCodec(imageData);
       final frameInfo = await codec.getNextFrame();
-      final image = frameInfo.image;
+      Image image = frameInfo.image;
+      if (page.pma) {
+        final original = image;
+        image = await _unpremultiplyOnce(image);
+        if (!identical(original, image)) {
+          original.dispose();
+        }
+      }
       pages.add(image);
 
       // Create paints for each blend mode
@@ -110,15 +177,18 @@ class AtlasFlutter extends Atlas {
   }
 
   /// Loads an [AtlasFlutter] from the file [atlasFileName] in the root bundle or the optionally provided [bundle].
-  static Future<AtlasFlutter> fromAsset(String atlasFileName, {AssetBundle? bundle}) async {
+  static Future<AtlasFlutter> fromAsset(String atlasFileName,
+      {AssetBundle? bundle}) async {
     bundle ??= rootBundle;
-    return fromMemory(atlasFileName, (file) async => (await bundle!.load(file)).buffer.asUint8List());
+    return fromMemory(atlasFileName,
+        (file) async => (await bundle!.load(file)).buffer.asUint8List());
   }
 
   /// Loads an [AtlasFlutter] from the file [atlasFileName].
   static Future<AtlasFlutter> fromFile(String atlasFileName) async {
     if (kIsWeb) {
-      throw UnsupportedError('File operations are not supported on web. Use fromAsset or fromHttp instead.');
+      throw UnsupportedError(
+          'File operations are not supported on web. Use fromAsset or fromHttp instead.');
     }
     return fromMemory(atlasFileName, (file) => File(file).readAsBytes());
   }
@@ -184,10 +254,12 @@ class SkeletonDataFlutter extends SkeletonData {
     final fileData = await loadFile(skeletonFile);
     if (skeletonFile.endsWith(".json")) {
       final jsonData = convert.utf8.decode(fileData);
-      final skeletonData = loadSkeletonDataJson(atlas, jsonData, path: skeletonFile);
+      final skeletonData =
+          loadSkeletonDataJson(atlas, jsonData, path: skeletonFile);
       return SkeletonDataFlutter._(skeletonData.nativePtr.cast());
     } else {
-      final skeletonData = loadSkeletonDataBinary(atlas, fileData, path: skeletonFile);
+      final skeletonData =
+          loadSkeletonDataBinary(atlas, fileData, path: skeletonFile);
       return SkeletonDataFlutter._(skeletonData.nativePtr.cast());
     }
   }
@@ -196,25 +268,32 @@ class SkeletonDataFlutter extends SkeletonData {
   /// Uses the provided [atlasFlutter] to resolve attachment images.
   ///
   /// Throws an [Exception] in case the skeleton data could not be loaded.
-  static Future<SkeletonDataFlutter> fromAsset(AtlasFlutter atlas, String skeletonFile, {AssetBundle? bundle}) async {
+  static Future<SkeletonDataFlutter> fromAsset(
+      AtlasFlutter atlas, String skeletonFile,
+      {AssetBundle? bundle}) async {
     bundle ??= rootBundle;
-    return fromMemory(atlas, skeletonFile, (file) async => (await bundle!.load(file)).buffer.asUint8List());
+    return fromMemory(atlas, skeletonFile,
+        (file) async => (await bundle!.load(file)).buffer.asUint8List());
   }
 
   /// Loads a [SkeletonDataFlutter] from the file [skeletonFile]. Uses the provided [atlasFlutter] to resolve attachment images.
   ///
   /// Throws an [Exception] in case the skeleton data could not be loaded.
-  static Future<SkeletonDataFlutter> fromFile(AtlasFlutter atlasFlutter, String skeletonFile) async {
+  static Future<SkeletonDataFlutter> fromFile(
+      AtlasFlutter atlasFlutter, String skeletonFile) async {
     if (kIsWeb) {
-      throw UnsupportedError('File operations are not supported on web. Use fromAsset or fromHttp instead.');
+      throw UnsupportedError(
+          'File operations are not supported on web. Use fromAsset or fromHttp instead.');
     }
-    return fromMemory(atlasFlutter, skeletonFile, (file) => File(file).readAsBytes());
+    return fromMemory(
+        atlasFlutter, skeletonFile, (file) => File(file).readAsBytes());
   }
 
   /// Loads a [SkeletonDataFlutter] from the URL [skeletonURL]. Uses the provided [atlasFlutter] to resolve attachment images.
   ///
   /// Throws an [Exception] in case the skeleton data could not be loaded.
-  static Future<SkeletonDataFlutter> fromHttp(AtlasFlutter atlasFlutter, String skeletonURL) async {
+  static Future<SkeletonDataFlutter> fromHttp(
+      AtlasFlutter atlasFlutter, String skeletonURL) async {
     return fromMemory(atlasFlutter, skeletonURL, (file) async {
       final response = await http.get(Uri.parse(file));
       if (response.statusCode != 200) {
@@ -249,7 +328,24 @@ class RenderCommandFlutter {
   late final int atlasPageIndex;
   late final BlendMode blendMode;
 
-  RenderCommandFlutter._(this._nativeCommand, double pageWidth, double pageHeight) {
+  static int _premultiplyArgb(int argb) {
+    final value = argb & 0xffffffff;
+    final a = (value >>> 24) & 0xff;
+    if (a == 0xff) return argb;
+    if (a == 0x00) return 0;
+    final r = (value >>> 16) & 0xff;
+    final g = (value >>> 8) & 0xff;
+    final b = value & 0xff;
+    final rPma = (r * a + 127) ~/ 255;
+    final gPma = (g * a + 127) ~/ 255;
+    final bPma = (b * a + 127) ~/ 255;
+    final out = (a << 24) | (rPma << 16) | (gPma << 8) | bPma;
+    return out.toSigned(32);
+  }
+
+  RenderCommandFlutter._(
+      this._nativeCommand, double pageWidth, double pageHeight,
+      {required bool usePmaColors}) {
     // Get atlas page index from texture pointer (which is actually the page index when using spine_atlas_load)
     final texturePtr = _nativeCommand.texture;
     atlasPageIndex = texturePtr?.address ?? 0;
@@ -263,7 +359,10 @@ class RenderCommandFlutter {
     final colorsPtr = _nativeCommand.colors;
     final indicesPtr = _nativeCommand.indices;
 
-    if (positionsPtr == null || uvsPtr == null || colorsPtr == null || indicesPtr == null) {
+    if (positionsPtr == null ||
+        uvsPtr == null ||
+        colorsPtr == null ||
+        indicesPtr == null) {
       throw Exception('Invalid render command data');
     }
 
@@ -283,7 +382,8 @@ class RenderCommandFlutter {
 
     // Handle colors - convert Uint32 to Int32 view without copying
     final colorsUint32 = colorsPtr.asTypedList(numVertices);
-    final colors = Int32List.view(colorsUint32.buffer, colorsUint32.offsetInBytes, colorsUint32.length);
+    final colors = Int32List.view(
+        colorsUint32.buffer, colorsUint32.offsetInBytes, colorsUint32.length);
 
     if (!kIsWeb) {
       // We pass the native data as views directly to Vertices.raw. According to the sources, the data
@@ -301,13 +401,23 @@ class RenderCommandFlutter {
       // has to render to an offscreen surface.
       if (colors.isNotEmpty && colors[0] == -1) {
         // Fast path: no vertex colors (all white)
-        vertices = Vertices.raw(VertexMode.triangles, positions, textureCoordinates: uvs, indices: indices);
+        vertices = Vertices.raw(VertexMode.triangles, positions,
+            textureCoordinates: uvs, indices: indices);
       } else {
+        final Int32List finalColors;
+        if (usePmaColors) {
+          finalColors = Int32List(colors.length);
+          for (var i = 0; i < colors.length; i++) {
+            finalColors[i] = _premultiplyArgb(colors[i]);
+          }
+        } else {
+          finalColors = colors;
+        }
         vertices = Vertices.raw(
           VertexMode.triangles,
           positions,
           textureCoordinates: uvs,
-          colors: colors,
+          colors: finalColors,
           indices: indices,
         );
       }
@@ -316,6 +426,11 @@ class RenderCommandFlutter {
       final positionsCopy = Float32List.fromList(positions);
       final uvsCopy = Float32List.fromList(uvs);
       final colorsCopy = Int32List.fromList(colors);
+      if (usePmaColors) {
+        for (var i = 0; i < colorsCopy.length; i++) {
+          colorsCopy[i] = _premultiplyArgb(colorsCopy[i]);
+        }
+      }
       final indicesCopy = Uint16List.fromList(indices);
       vertices = Vertices.raw(
         VertexMode.triangles,
@@ -356,7 +471,9 @@ class SkeletonDrawableFlutter extends SkeletonDrawable {
   /// Constructs a new skeleton drawable from the given (possibly shared) [AtlasFlutter] and [SkeletonDataFlutter]. If
   /// the atlas and skeleton data are not shared, the drawable can take ownership by passing true for [_ownsAtlasAndSkeletonData].
   /// In that case a call to [dispose] will also dispose the atlas and skeleton data.
-  SkeletonDrawableFlutter(this.atlasFlutter, this.skeletonData, this._ownsAtlasAndSkeletonData) : super(skeletonData);
+  SkeletonDrawableFlutter(
+      this.atlasFlutter, this.skeletonData, this._ownsAtlasAndSkeletonData)
+      : super(skeletonData);
 
   /// Constructs a new skeleton drawable using a custom file loading function.
   ///
@@ -394,7 +511,8 @@ class SkeletonDrawableFlutter extends SkeletonDrawable {
     Future<Uint8List> Function(String name) loadFile,
   ) async {
     final atlasFlutter = await AtlasFlutter.fromMemory(atlasFile, loadFile);
-    final skeletonDataFlutter = await SkeletonDataFlutter.fromMemory(atlasFlutter, skeletonFile, loadFile);
+    final skeletonDataFlutter = await SkeletonDataFlutter.fromMemory(
+        atlasFlutter, skeletonFile, loadFile);
     return SkeletonDrawableFlutter(atlasFlutter, skeletonDataFlutter, true);
   }
 
@@ -402,31 +520,41 @@ class SkeletonDrawableFlutter extends SkeletonDrawable {
   /// or the optionally provided [bundle].
   ///
   /// Throws an exception in case the data could not be loaded.
-  static Future<SkeletonDrawableFlutter> fromAsset(String atlasFile, String skeletonFile, {AssetBundle? bundle}) async {
+  static Future<SkeletonDrawableFlutter> fromAsset(
+      String atlasFile, String skeletonFile,
+      {AssetBundle? bundle}) async {
     bundle ??= rootBundle;
-    final atlasFlutter = await AtlasFlutter.fromAsset(atlasFile, bundle: bundle);
-    final skeletonDataFlutter = await SkeletonDataFlutter.fromAsset(atlasFlutter, skeletonFile, bundle: bundle);
+    final atlasFlutter =
+        await AtlasFlutter.fromAsset(atlasFile, bundle: bundle);
+    final skeletonDataFlutter = await SkeletonDataFlutter.fromAsset(
+        atlasFlutter, skeletonFile,
+        bundle: bundle);
     return SkeletonDrawableFlutter(atlasFlutter, skeletonDataFlutter, true);
   }
 
   /// Constructs a new skeleton drawable from the [atlasFile] and [skeletonFile].
   ///
   /// Throws an exception in case the data could not be loaded.
-  static Future<SkeletonDrawableFlutter> fromFile(String atlasFile, String skeletonFile) async {
+  static Future<SkeletonDrawableFlutter> fromFile(
+      String atlasFile, String skeletonFile) async {
     if (kIsWeb) {
-      throw UnsupportedError('File operations are not supported on web. Use fromAsset or fromHttp instead.');
+      throw UnsupportedError(
+          'File operations are not supported on web. Use fromAsset or fromHttp instead.');
     }
     final atlasFlutter = await AtlasFlutter.fromFile(atlasFile);
-    final skeletonDataFlutter = await SkeletonDataFlutter.fromFile(atlasFlutter, skeletonFile);
+    final skeletonDataFlutter =
+        await SkeletonDataFlutter.fromFile(atlasFlutter, skeletonFile);
     return SkeletonDrawableFlutter(atlasFlutter, skeletonDataFlutter, true);
   }
 
   /// Constructs a new skeleton drawable from the [atlasUrl] and [skeletonUrl].
   ///
   /// Throws an exception in case the data could not be loaded.
-  static Future<SkeletonDrawableFlutter> fromHttp(String atlasUrl, String skeletonUrl) async {
+  static Future<SkeletonDrawableFlutter> fromHttp(
+      String atlasUrl, String skeletonUrl) async {
     final atlasFlutter = await AtlasFlutter.fromHttp(atlasUrl);
-    final skeletonDataFlutter = await SkeletonDataFlutter.fromHttp(atlasFlutter, skeletonUrl);
+    final skeletonDataFlutter =
+        await SkeletonDataFlutter.fromHttp(atlasFlutter, skeletonUrl);
     return SkeletonDrawableFlutter(atlasFlutter, skeletonDataFlutter, true);
   }
 
@@ -444,9 +572,17 @@ class SkeletonDrawableFlutter extends SkeletonDrawable {
       final pages = atlasFlutter.pages;
       final page = pages[pageIndex];
       if (page != null) {
-        commands.add(RenderCommandFlutter._(nativeCmd, page.width.toDouble(), page.height.toDouble()));
+        commands.add(
+          RenderCommandFlutter._(
+            nativeCmd,
+            page.width.toDouble(),
+            page.height.toDouble(),
+            usePmaColors: page.pma,
+          ),
+        );
       } else {
-        commands.add(RenderCommandFlutter._(nativeCmd, 1.0, 1.0));
+        commands.add(
+            RenderCommandFlutter._(nativeCmd, 1.0, 1.0, usePmaColors: false));
       }
       nativeCmd = nativeCmd.next;
     }
@@ -483,9 +619,13 @@ class SkeletonDrawableFlutter extends SkeletonDrawable {
   /// Renders the skeleton drawable's current pose to a [PictureRecorder] with the given [width] and [height].
   /// Uses [bgColor], a 32-bit ARGB color value, to paint the background.
   /// Scales and centers the skeleton to fit the within the bounds of [width] and [height].
-  PictureRecorder renderToPictureRecorder(double width, double height, int bgColor) {
+  PictureRecorder renderToPictureRecorder(
+      double width, double height, int bgColor) {
     var bounds = skeleton.bounds;
-    var scale = 1 / (bounds.width > bounds.height ? bounds.width / width : bounds.height / height);
+    var scale = 1 /
+        (bounds.width > bounds.height
+            ? bounds.width / width
+            : bounds.height / height);
 
     var recorder = PictureRecorder();
     var canvas = Canvas(recorder);
@@ -495,7 +635,8 @@ class SkeletonDrawableFlutter extends SkeletonDrawable {
     canvas.drawRect(Rect.fromLTWH(0, 0, width, height), paint);
     canvas.translate(width / 2, height / 2);
     canvas.scale(scale, scale);
-    canvas.translate(-(bounds.x + bounds.width / 2), -(bounds.y + bounds.height / 2));
+    canvas.translate(
+        -(bounds.x + bounds.width / 2), -(bounds.y + bounds.height / 2));
     renderToCanvas(canvas);
     return recorder;
   }
@@ -503,16 +644,21 @@ class SkeletonDrawableFlutter extends SkeletonDrawable {
   /// Renders the skeleton drawable's current pose to a PNG encoded in a [Uint8List], with the given [width] and [height].
   /// Uses [bgColor], a 32-bit ARGB color value, to paint the background.
   /// Scales and centers the skeleton to fit the within the bounds of [width] and [height].
-  Future<Uint8List> renderToPng(double width, double height, int bgColor) async {
+  Future<Uint8List> renderToPng(
+      double width, double height, int bgColor) async {
     final recorder = renderToPictureRecorder(width, height, bgColor);
-    final image = await recorder.endRecording().toImage(width.toInt(), height.toInt());
-    return (await image.toByteData(format: ImageByteFormat.png))!.buffer.asUint8List();
+    final image =
+        await recorder.endRecording().toImage(width.toInt(), height.toInt());
+    return (await image.toByteData(format: ImageByteFormat.png))!
+        .buffer
+        .asUint8List();
   }
 
   /// Renders the skeleton drawable's current pose to a [RawImageData], with the given [width] and [height].
   /// Uses [bgColor], a 32-bit ARGB color value, to paint the background.
   /// Scales and centers the skeleton to fit the within the bounds of [width] and [height].
-  Future<RawImageData> renderToRawImageData(double width, double height, int bgColor) async {
+  Future<RawImageData> renderToRawImageData(
+      double width, double height, int bgColor) async {
     final recorder = renderToPictureRecorder(width, height, bgColor);
     var rawImageData = (await (await recorder.endRecording().toImage(
                   width.toInt(),
@@ -550,14 +696,18 @@ class SkeletonDrawableFlutter extends SkeletonDrawable {
 class DebugRenderer {
   const DebugRenderer();
 
-  void render(SkeletonDrawableFlutter drawable, Canvas canvas, List<RenderCommandFlutter> commands) {
+  void render(SkeletonDrawableFlutter drawable, Canvas canvas,
+      List<RenderCommandFlutter> commands) {
     final bonePaint = Paint()
       ..color = material.Colors.blue
       ..style = PaintingStyle.fill;
     for (final bone in drawable.skeleton.bones) {
       if (bone == null) continue;
       canvas.drawRect(
-        Rect.fromCenter(center: Offset(bone.appliedPose.worldX, bone.appliedPose.worldY), width: 5, height: 5),
+        Rect.fromCenter(
+            center: Offset(bone.appliedPose.worldX, bone.appliedPose.worldY),
+            width: 5,
+            height: 5),
         bonePaint,
       );
     }
